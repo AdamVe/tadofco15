@@ -1,24 +1,16 @@
-{-# LANGUAGE UnicodeSyntax #-}
-
 module Main where
 import qualified Data.ByteString.Lazy.Char8 as L
 import           Data.List
 import           Data.Maybe
-import           Data.ByteString.Conversion
 
-data Dimension = Dimension Int Int Int
+p1 (w,h,l) = 3*w*h + 2*w*l + 2*h*l
+p2 (w,h,l) = w + w + h + h + w*h*l
 
-part1 (Dimension w h l) = 3*w*h + 2*w*l + 2*h*l
-part2 (Dimension w h l) = w + w + h + h + w*h*l
+c s = (w,h,l)
+  where [w, h, l] = sort $ map (fst . fromJust . L.readInt) s
 
-readDimension ∷ [L.ByteString] → Dimension
-readDimension strings = Dimension w h l
-  where [w, h, l] = sort $ map (fst . fromJust . L.readInt) strings
+run part = foldl1' (+) . map ( part . c . L.split 'x' ) . L.lines
 
-countResult part = Data.List.foldl1' (+) . map ( part . readDimension . L.split 'x' ) . L.lines
-
-main :: IO ()
 main = do
-        input ← L.getContents
-        print $ "Part 1: " ++ show (countResult part1 input)
-        print $ "Part 2: " ++ show (countResult part2 input)
+        input <- L.getContents
+        print $ show (run p1 input) ++ "," ++ show (run p2 input)
