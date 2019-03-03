@@ -1,6 +1,7 @@
 import           Data.Array
 import           Data.Bits
 import qualified Data.ByteString.Lazy        as BL
+import           Data.List
 import           Text.Parsec
 import           Text.Parsec.ByteString.Lazy
 
@@ -41,12 +42,8 @@ main = do
   let g = createGrid 1000 1000
 
   input <- BL.getContents
-  print "Starting!"
   case parse pInput "stdin" input of
     Left e -> print $ "Parser err" ++ show e
     Right list -> do
-      let g' = foldl (\g'' f -> f g'') g list
-      print "Lights up:"
-      print $ length $ filter (==True) $ elems g'
-
-  putStrLn "Done!"
+      let g' = foldl' (\g'' f -> f g'') g list
+      print $ "# of lights up: " ++ show (length $ filter (==True) $ elems g')

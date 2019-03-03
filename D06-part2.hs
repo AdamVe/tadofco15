@@ -46,8 +46,5 @@ main = do
   case parse pInput "stdin" input of
     Left e -> print $ "Parser err" ++ show e
     Right list -> do
-      print $ "There are " ++ show (length list) ++ " steps to do"
       let g' = foldl' (\g'' f -> f g'') g list
       print $ "Intensity: " ++ show ((sum . elems) g')
-
-  putStrLn "Done!"
