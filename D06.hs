@@ -1,49 +1,29 @@
-import           Data.Array
-import           Data.Bits
-import qualified Data.ByteString.Lazy        as BL
-import           Data.List
+import qualified Data.ByteString as BL hiding (foldl')
+import           Data.List       hiding (length)
+import           Data.Set        as S hiding (foldl')
 import           Text.Parsec
-import           Text.Parsec.ByteString.Lazy
 
-type Index = (Int, Int)
-type Grid = Array Index Bool
-type GridT = Grid -> Grid
-type Step = (Bool->Bool) -> (Index, Index) -> Grid -> Grid
-
-pInput :: Parser [GridT]
 pInput = (pLine <* string "\n") `manyTill` eof
-
-pIndex :: Parser Index
-pIndex = many digit >>= (\i1 -> char ',' >> many digit >>= (\i2 -> return (read i1, read i2)))
-
-pBounds :: Parser (Index, Index)
+pIndex = many digit >>= (\i1 -> char ',' >> many digit >>= (\i2 -> return (read i1 :: Int, read i2 :: Int)))
 pBounds = pIndex >>= (\i1 -> string " through " >> pIndex >>= (\i2 -> return (i1,i2)))
+pLine =  try (toggleLamps <$> (string "toggle " >> pBounds))
+  <|> try (turnLampsOff <$> (string "turn off " >> pBounds))
+  <|> toggleLamps <$> (string "toggle " >> pBounds)
 
-pTurnOn :: Parser GridT
-pTurnOn = changeLamps (True .|.) <$> (string "turn on " >> pBounds)
+lamps ((sx, sy), (ex, ey)) = fromAscList [(x,y)| x <- [sx..ex], y <- [sy..ey]]
 
-pTurnOff :: Parser GridT
-pTurnOff = changeLamps (False .&.) <$> (string "turn off " >> pBounds)
-
-pToggle :: Parser GridT
-pToggle = changeLamps not <$> (string "toggle " >> pBounds)
-
-pLine :: Parser GridT
-pLine =  try pToggle <|> try pTurnOff <|> pTurnOn
-
-createGrid :: Int -> Int -> Grid
-createGrid w h = array ((0 :: Int, 0 :: Int), (w-1, h-1)) [((x,y), False) | x <- [0..w-1], y <- [0..h-1]]
-
-changeLamps :: Step
-changeLamps f ((sx,sy), (ex,ey)) m = m//[ ((x,y), f (m!(x,y)) ) | x <- [sx..ex], y <- [sy..ey]]
+turnLampsOn ((sx,sy), (ex,ey)) s = S.union s $ lamps ((sx,sy),(ex,ey))
+turnLampsOff ((sx,sy), (ex,ey)) s = S.difference s $ lamps ((sx,sy),(ex,ey))
+toggleLamps ((sx,sy), (ex,ey)) s = S.union (S.difference s isection) notIn
+  where isection = S.intersection s queryLamps
+        notIn = S.difference queryLamps isection
+        queryLamps = lamps ((sx,sy),(ex,ey))
 
 main :: IO ()
 main = do
-  let g = createGrid 1000 1000
-
   input <- BL.getContents
   case parse pInput "stdin" input of
     Left e -> print $ "Parser err" ++ show e
     Right list -> do
-      let g' = foldl' (\g'' f -> f g'') g list
-      print $ "# of lights up: " ++ show (length $ filter (==True) $ elems g')
+      let g' = foldl' (\g'' f -> f g'') S.empty list
+      print $ "# of lights up: " ++ show (length $ elems g')
