@@ -6,7 +6,7 @@ import           Text.Parsec
 import           Text.Parsec.ByteString.Lazy
 
 type Gate = String
-data Signal = Value String
+data Signal = Value Int
             | Reference String
 
 data Instruction
@@ -18,7 +18,7 @@ data Instruction
   | Var Gate Signal
 
 instance Show Signal where
-  show (Value v)     = v
+  show (Value v)     = show v
   show (Reference r) = r
 
 instance Show Instruction where
@@ -32,8 +32,12 @@ instance Show Instruction where
 pInput :: Parser [Instruction]
 pInput = (pExp <* char '\n') `manyTill` eof
 
-pVal :: Parser String
-pVal = pWspace *> (try (string "0") <|> many1 (oneOf "0123456789")) <* pWspace
+pVal :: Parser Int
+pVal = do
+  pWspace
+  x <- try (string "0") <|> many1 (oneOf "0123456789")
+  pWspace
+  return $ read x
 
 pVar :: Parser String
 pVar = pWspace *> many (oneOf ['a'..'z']) <* pWspace
