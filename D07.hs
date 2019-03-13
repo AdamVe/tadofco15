@@ -1,82 +1,81 @@
-{-# OPTIONS_GHC -Wno-unused-do-bind #-}
-{-# OPTIONS_GHC -Wno-unused-imports #-}
+import           Control.Monad.State
 import           Data.Bits
 import qualified Data.ByteString.Lazy        as BL
-import           Data.List
 import           Data.Map
 import           Data.Word
-import           Debug.Trace
-import           Text.Parsec
+import           Text.Parsec                 hiding (State)
 import           Text.Parsec.ByteString.Lazy
 
-type Gate = String
-data Signal = Value Word16
-            | Reference Gate
+type WireId = String
+type Signal = Word16
+type WireSourceMap = Map WireId SignalSource
 
-data Instruction
-  = And Signal Signal
-  | Or Signal Signal
-  | RShift Signal Int
-  | LShift Signal Int
-  | Not Signal
-  | Var Signal
+data SignalSource
+  = AndGate SignalSource SignalSource
+  | OrGate SignalSource SignalSource
+  | RShiftGate SignalSource Int
+  | LShiftGate SignalSource Int
+  | NotGate SignalSource
+  | SpecificValue Signal
+  | Wire WireId deriving (Show)
 
-instance Show Signal where
-  show (Value v)     = show v
-  show (Reference r) = r
+pInput :: Parser [(WireId, SignalSource)]
+pInput = (pLine <* endOfLine) `manyTill` eof
 
-instance Show Instruction where
-  show (And v1 v2)    = show v1 ++ " AND " ++ show v2
-  show (Or v1 v2)     = show v1 ++ " OR " ++ show v2
-  show (RShift v1 v2) = show v1 ++ " RSHIFT " ++ show v2
-  show (LShift v1 v2) = show v1 ++ " LSHIFT " ++ show v2
-  show (Not v)        = "NOT " ++ show v
-  show (Var v)        = show v
+pSignal :: Parser Signal
+pSignal =  read <$> many1 digit
 
-pInput :: Parser [(Gate, Instruction)]
-pInput = (pExp <* char '\n') `manyTill` eof
+pWireId :: Parser WireId
+pWireId = many1 lower
 
-pVal :: Parser Word16
-pVal = do
-  pWspace
-  x <- try (string "0") <|> many1 (oneOf "0123456789")
-  pWspace
-  return $ read x
+pOutputWire :: Parser WireId
+pOutputWire = string " -> " *> pWireId
 
-pVar :: Parser String
-pVar = pWspace *> many (oneOf ['a'..'z']) <* pWspace
+pValue :: Parser SignalSource
+pValue = (SpecificValue <$> pSignal) <|> (Wire <$> pWireId)
 
-pGate :: Parser String
-pGate = pWspace *> string "->" *> pWspace *> pVar
+pLine :: Parser (WireId, SignalSource)
+pLine =
+  (string "NOT " >> pValue >>= (\ v1 -> pOutputWire >>= (\ wire -> return (wire, NotGate v1)))) <|>
+  (pValue >>=
+   \ v1 ->
+     try (string " AND " >> pValue >>= (\ v2 -> pOutputWire >>= (\ wire -> return (wire, AndGate v1 v2)))) <|>
+     try (string " OR " >> pValue >>= (\ v2 -> pOutputWire >>= (\ wire -> return (wire, OrGate v1 v2)))) <|>
+     try (string " RSHIFT " >> read <$> many digit >>= (\ v2 -> pOutputWire >>= (\ wire -> return (wire, RShiftGate v1 v2)))) <|>
+     try (string " LSHIFT " >> read <$> many digit >>= (\ v2 -> pOutputWire >>= (\ wire -> return (wire, LShiftGate v1 v2)))) <|>
+     (pOutputWire >>= (\wire -> return (wire, v1))))
 
-pWspace :: Parser String
-pWspace = many $ oneOf " "
+getWireSignalSource :: WireId -> State WireSourceMap SignalSource
+getWireSignalSource g = state $ \m -> let i = m!g
+                                      in (i, m)
 
-pValue :: Parser Signal
-pValue = try (Value <$> pVal) <|> (Reference <$> pVar)
+setWireValue :: WireId -> Signal -> State WireSourceMap ()
+setWireValue g v = state $ \m -> ((), insert g (SpecificValue v) m)
 
-pExp :: Parser (Gate, Instruction)
-pExp =
-  try (pValue >>= (\ v1 -> string "AND" >> pValue >>= (\ v2 -> pGate >>= (\ gate -> return (gate, And v1 v2))))) <|>
-  try (pValue >>= (\ v1 -> string "OR" >> pValue >>= (\ v2 -> pGate >>= (\ gate -> return (gate, Or v1 v2))))) <|>
-  try (pValue >>= (\ v1 -> string "RSHIFT" >> many (oneOf " 0123456789") >>= (\ v2 -> pGate >>= (\ gate -> return (gate, RShift v1 (read v2)))))) <|>
-  try (pValue >>= (\ v1 -> string "LSHIFT" >> many (oneOf " 0123456789") >>= (\ v2 -> pGate >>= (\ gate -> return (gate, LShift v1 (read v2)))))) <|>
-  try (string "NOT" >> pValue >>= (\ v1 -> pGate >>= (\ gate -> return (gate, Not v1)))) <|>
-  try (pValue >>= (\ v1 -> pGate >>= (\gate -> return (gate, Var v1))))
-
-evalSignal :: Signal -> Map String Instruction -> Word16
-evalSignal s m = case s of
-    Value i      -> i --trace ("Evaluating value " ++ show i) i
-    Reference g' -> (eval m g') -- trace ("Evaluating ref " ++ g') (eval m g')
-
-eval :: Map String Instruction -> Gate -> Word16
-eval m g = case m!g of
-  Var v      -> trace ("Var " ++ show v) (evalSignal v m)
-  And v1 v2  -> trace ("And " ++ show v1 ++ " " ++ show v2) (evalSignal v1 m .&. evalSignal v2 m)
-  Or v1 v2   -> trace ("Or " ++ show v1 ++ " " ++ show v2) (evalSignal v1 m .|. evalSignal v2 m)
-  LShift v s -> trace ("Lshift " ++ show v ++ " " ++ show s) (shift (evalSignal v m) s)
-  RShift v s -> trace ("Rshift " ++ show v ++ " " ++ show (negate s)) (shift (evalSignal v m) (negate s))
-  Not v      -> trace ("Not " ++ show v) (complement $ evalSignal v m)
+evalSignal :: SignalSource -> State WireSourceMap Signal
+evalSignal (SpecificValue v) = return v
+evalSignal (Wire w) = do
+  signalSource <- getWireSignalSource w
+  s <- evalSignal signalSource
+  setWireValue w s
+  return s
+evalSignal (AndGate s1 s2) = do
+  r1 <- evalSignal s1
+  r2 <- evalSignal s2
+  return (r1 .&. r2)
+evalSignal (OrGate s1 s2) = do
+  r1 <- evalSignal s1
+  r2 <- evalSignal s2
+  return (r1 .|. r2)
+evalSignal (RShiftGate v b) = do
+  s <- evalSignal v
+  return (shift s (negate b))
+evalSignal (LShiftGate v b) = do
+  s <- evalSignal v
+  return (shift s b)
+evalSignal (NotGate v) = do
+  r <- evalSignal v
+  return (complement r)
 
 main :: IO ()
 main = do
@@ -84,15 +83,5 @@ main = do
   case parse pInput "stdin" input of
     Left e -> print $ "Parser err" ++ show e
     Right list -> do
-      let mp = fromList list
-      let result = eval mp "a"
-      mapM_ print list
-      print $ "a -> " ++ show result
-      -- print $ "x -> " ++ show (eval mp "x")
-      -- print $ "y -> " ++ show (eval mp "y")
-      -- print $ "d -> " ++ show (eval mp "d")
-      -- print $ "e -> " ++ show (eval mp "e")
-      -- print $ "f -> " ++ show (eval mp "f")
-      -- print $ "g -> " ++ show (eval mp "g")
-      -- print $ "h -> " ++ show (eval mp "h")
-      -- print $ "i -> " ++ show (eval mp "i")
+      let a = runState (evalSignal (Wire "a")) $ fromList list
+      print a
