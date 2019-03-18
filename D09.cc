@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -36,10 +37,7 @@ int main() {
   }
 
   std::vector<short> v(loc_count);
-  std::generate(v.begin(), v.end(), []() {
-    static short i = 0;
-    return i++;
-  });
+  std::iota(v.begin(), v.end(), 0);
 
   int min_dist = std::numeric_limits<int>::max();
   int max_dist = 0;
