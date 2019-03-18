@@ -8,6 +8,7 @@ project(
 
 executable(
   'D09',
-  'D09.cc'
+  'D09.cc',
+  cpp_args : '-O3'
 )
 
